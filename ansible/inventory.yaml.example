@@ -1,0 +1,11 @@
+all:
+  hosts:
+    my.host.xyz:
+      ansible_host: 11.22.33.44
+  vars:
+    NODES_DIR: /opt/nodes
+    NODES_DATA_DIR: /opt/nodes_data
+
+cosmosMainnets:
+  hosts:
+    my.host.xyz:

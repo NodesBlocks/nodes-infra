@@ -1,0 +1,2 @@
+ansible/inventory.yaml
+ansible/group_vars/*.yaml
