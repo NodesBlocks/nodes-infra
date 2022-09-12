@@ -1,0 +1,150 @@
+---
+- name: Node run
+  hosts: "{{ target }}"
+  become: yes
+
+  tasks:
+    - name: Set main variables
+      ansible.builtin.set_fact:
+        moniker: beething
+        wallet_addr: "canto1mfeumsu0xptuj60nr9y4gaayw3h8l5tkgcuwxp"
+        valoper_addr: "cantovaloper1mfeumsu0xptuj60nr9y4gaayw3h8l5tk2xm2hy"
+        keypasswd: "{{ canto_keypasswd }}"
+        chain_id: canto_7700-1
+        project_name: canto
+        external_address: "{{ ansible_host }}"
+        external_port: 20006
+        cosmos_data_dir: /root/.cantod
+        cosmos_node_binary: cantod
+        genesis_url: https://raw.githubusercontent.com/Canto-Network/Canto/genesis/Networks/Mainnet/genesis.json
+
+    - name: Set config.toml variables
+      ansible.builtin.set_fact:
+        max_num_inbound_peers: 240
+        max_num_outbound_peers: 30
+        mempool_size: 10000
+        statesync_enable: true
+        statesync_rpc_servers: "https://rpc.canto.nodestake.top:443,https://canto-rpc.polkachu.com:443"
+        statesync_trust_height: 708000
+        statesync_trust_hash: "14e9a89157ad7f69202a82b8a77b331f7428974bb02fb90acd725610c889e175"
+        statesync_trust_period: 168h
+        seeds: "0830aa240e139fba099d1c2e831be84ecb29b73f@43.205.108.200:26656,beb82dcef7adcc3f8bc4173fa57bd310f6a6a55a@138.197.134.149:26656,9361d2cfb283da656b14eaf27e64d96cb86706f0@167.71.170.71:26656"
+
+    - name: Set app.toml variables
+      ansible.builtin.set_fact:
+        minimum_gas_prices: "0.0001acanto"
+        api_enable: false
+        grpc_enable: true
+        grpc_web_enable: true
+        snapshot_interval: 1500
+        snapshot_keep_recent: 2
+        wasm: false
+        json_rpc: true
+        tls: true
+        evm: true
+
+    - name: Set flow control variables
+      ansible.builtin.set_fact:
+        binary_version: 2.0.0-1
+        rebuild: False
+        init: False
+        config: False
+        run_node: False
+
+    - name: "Speed up making directories"
+      shell: |
+        mkdir -p {{ NODES_DIR }}/{{ project_name }}
+        mkdir -p {{ NODES_DATA_DIR }}/{{ project_name}}
+
+    - name: Create a network
+      community.docker.docker_network:
+        name: "{{ project_name }}"
+
+    - name: Write dockerfile
+      copy:
+        dest: "{{ NODES_DIR }}/{{ project_name }}/Dockerfile"
+        content: |
+          FROM golang:1.18-bullseye
+          RUN mkdir -p /opt/src
+          WORKDIR /opt/src
+          RUN git clone https://github.com/Canto-Network/Canto.git
+          RUN cd Canto && make install
+      when: rebuild
+
+    - name: Build image
+      command: docker build -f Dockerfile -t {{ project_name}}:{{binary_version}} .
+      args:
+        chdir: "{{ NODES_DIR }}/{{ project_name}}"
+      when: rebuild
+
+    - name: Run CLI container
+      docker_container:
+        name: "{{ project_name}}-cli"
+        image: "{{ project_name}}:{{binary_version}}"
+        command: ["tail", "-f", "/dev/null"]
+        env:
+          daemon_name: "{{ cosmos_node_binary}}"
+          wallet_addr: "{{ wallet_addr}}"
+          valoper_addr: "{{ valoper_addr}}"
+          keypasswd: "{{ keypasswd }}"
+        networks:
+          - name: "{{ project_name}}"
+        restart_policy: unless-stopped
+        pull: false
+        state: started
+        volumes:
+          - "{{ NODES_DATA_DIR }}/{{ project_name}}:{{ cosmos_data_dir }}:rw"
+
+    - name: Init chain
+      community.docker.docker_container_exec:
+        container: "{{ project_name}}-cli"
+        command: |
+          {{cosmos_node_binary}} init {{ moniker }} 
+          --chain-id {{ chain_id }} 
+          -o
+      register: result
+      when: init
+
+    - name: Install config.toml
+      ansible.builtin.template:
+        src: ../templates/config.toml.tpl
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/config.toml"
+      when: config
+
+    - name: Install client.toml
+      ansible.builtin.template:
+        src: ../templates/client.toml.tpl
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/client.toml"
+      when: config
+
+    - name: Install app.toml
+      ansible.builtin.template:
+        src: ../templates/app.toml.tpl
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/app.toml"
+      when: config
+
+    - name: Download genesis
+      ansible.builtin.get_url:
+        url: "{{ genesis_url }}"
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/genesis.json"
+      when: config
+
+    - name: Run node
+      docker_container:
+        name: "{{ project_name}}-node"
+        image: "{{ project_name}}:{{binary_version}}"
+        command: |
+          {{ cosmos_node_binary }}
+          start
+          --trace 
+          --json-rpc.api eth,txpool,personal,net,debug,web3
+        networks:
+          - name: "{{ project_name}}"
+        published_ports:
+          - "0.0.0.0:{{ external_port }}:26656"
+        restart_policy: unless-stopped
+        pull: false
+        state: started
+        volumes:
+          - "{{ NODES_DATA_DIR }}/{{ project_name}}:{{ cosmos_data_dir }}:rw"
+      when: run_node
