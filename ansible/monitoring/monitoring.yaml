@@ -37,6 +37,8 @@
         image: "prom/prometheus:latest"
         networks:
           - name: "{{ project_name}}"
+          - name: "konstellation"
+          - name: "canto"
         restart_policy: unless-stopped
         pull: true
         state: started

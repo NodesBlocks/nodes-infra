@@ -2,7 +2,7 @@
 cd ansible
 ```
 
-### First init
+### First init and download genesis
 
 ```
 ansible-playbook cosmos-mainnets/konstellation/konstellation.yaml \
@@ -12,7 +12,7 @@ ansible-playbook cosmos-mainnets/konstellation/konstellation.yaml \
  --diff --check
 ```
 
-### Download genesis and set config values
+### Set configs
 
 ```
 ansible-playbook cosmos-mainnets/konstellation/konstellation.yaml \

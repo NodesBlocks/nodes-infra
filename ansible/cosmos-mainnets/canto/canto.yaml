@@ -106,6 +106,12 @@
       register: result
       when: init
 
+    - name: Download genesis
+      ansible.builtin.get_url:
+        url: "{{ genesis_url }}"
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/genesis.json"
+      when: init
+
     - name: Install config.toml
       ansible.builtin.template:
         src: ../templates/config.toml.tpl
@@ -122,12 +128,6 @@
       ansible.builtin.template:
         src: ../templates/app.toml.tpl
         dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/app.toml"
-      when: config
-
-    - name: Download genesis
-      ansible.builtin.get_url:
-        url: "{{ genesis_url }}"
-        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/genesis.json"
       when: config
 
     - name: Run node

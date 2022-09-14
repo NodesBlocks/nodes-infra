@@ -6,3 +6,9 @@ scrape_configs:
   - job_name: "node-exporter"
     static_configs:
       - targets: ["node-exporter:9100"]
+  - job_name: "canto-node"
+    static_configs:
+      - targets: ["canto-node:26660"]
+  - job_name: "konstellation-node"
+    static_configs:
+      - targets: ["konstellation-node:26660"]
