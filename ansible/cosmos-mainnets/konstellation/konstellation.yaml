@@ -1,0 +1,148 @@
+---
+- name: Node run
+  hosts: "{{ target }}"
+  become: yes
+
+  tasks:
+    - name: Set main variables
+      ansible.builtin.set_fact:
+        moniker: beething
+        wallet_addr: "darc1uxdpq5gs2gujtwp33crndwsujdmzuh32z9sacu"
+        valoper_addr: "darcvaloper1uxdpq5gs2gujtwp33crndwsujdmzuh32npq655"
+        keypasswd: "{{ konstellation_keypasswd }}"
+        chain_id: darchub
+        project_name: konstellation
+        external_address: "{{ ansible_host }}"
+        external_port: 20007
+        cosmos_data_dir: /root/.knstld
+        cosmos_node_binary: knstld
+        genesis_url: https://raw.githubusercontent.com/knstl/konstellation/master/config/genesis.json
+
+    - name: Set config.toml variables
+      ansible.builtin.set_fact:
+        max_num_inbound_peers: 40
+        max_num_outbound_peers: 10
+        mempool_size: 5000
+        statesync_enable: true
+        statesync_rpc_servers: "https://node1.konstellation.tech:26657,https://konstellation-rpc.polkachu.com:443"
+        statesync_trust_height: 5258000
+        statesync_trust_hash: "1ccc4c350c1807c4fae40a914df776bc8357c7f95eac948689fbc1ef3bff76be"
+        statesync_trust_period: 168h
+        seeds: "00f7f4506d84f9d1458201946e1194564b444ce0@node14.konstellation.tech:26656,06fed4bbe81ead6073a7254e860331179af74f4c@node3.konstellation.tech:26656,0f4eef8db37ec7ef9f6d3324689db2847ee8f795@node10.konstellation.tech:26656,1c9aff1ea9d1cafd584aa61a70582e7c4b0c8675@node5.konstellation.tech:26656,7e8119050ecb80450ad476b50423b9230c10c8d0@node11.konstellation.tech:26656,a32dda75cf5ffe4ab0ff9a0969e525807e01f2e5@node2.konstellation.tech:26656,d4a713a657883cca49d71b1b2cab4ab5e94b0843@node4.konstellation.tech:26656,dbb7589202f6c751f2b93c6bbcd0e660676ab91c@node12.konstellation.tech:26656,f2c2ebec24507d54fea88976e9f93f0fbfa0d6d0@node13.konstellation.tech:26656"
+
+    - name: Set app.toml variables
+      ansible.builtin.set_fact:
+        minimum_gas_prices: "0stake"
+        api_enable: false
+        grpc_enable: true
+        grpc_web_enable: true
+        snapshot_interval: 1500
+        snapshot_keep_recent: 2
+        wasm: true
+        json_rpc: false
+        tls: false
+        evm: false
+
+    - name: Set flow control variables
+      ansible.builtin.set_fact:
+        binary_version: v0.5.0
+        rebuild: False
+        init: False
+        config: False
+        run_node: False
+
+    - name: "Speed up making directories"
+      shell: |
+        mkdir -p {{ NODES_DIR }}/{{ project_name }}
+        mkdir -p {{ NODES_DATA_DIR }}/{{ project_name}}
+
+    - name: Create a network
+      community.docker.docker_network:
+        name: "{{ project_name }}"
+
+    - name: Write dockerfile
+      copy:
+        dest: "{{ NODES_DIR }}/{{ project_name }}/Dockerfile"
+        content: |
+          FROM golang:1.18-bullseye
+          RUN mkdir -p /opt/src
+          WORKDIR /opt/src
+          RUN git clone -b {{binary_version}} https://github.com/konstellation/konstellation
+          RUN cd konstellation && make build && mv build/knstld /usr/local/bin/
+      when: rebuild
+
+    - name: Build image
+      command: docker build -f Dockerfile -t {{ project_name}}:{{binary_version}} .
+      args:
+        chdir: "{{ NODES_DIR }}/{{ project_name}}"
+      when: rebuild
+
+    - name: Run CLI container
+      docker_container:
+        name: "{{ project_name}}-cli"
+        image: "{{ project_name}}:{{binary_version}}"
+        command: ["tail", "-f", "/dev/null"]
+        env:
+          daemon_name: "{{ cosmos_node_binary}}"
+          wallet_addr: "{{ wallet_addr}}"
+          valoper_addr: "{{ valoper_addr}}"
+          keypasswd: "{{ keypasswd }}"
+        networks:
+          - name: "{{ project_name}}"
+        restart_policy: unless-stopped
+        pull: false
+        state: started
+        volumes:
+          - "{{ NODES_DATA_DIR }}/{{ project_name}}:{{ cosmos_data_dir }}:rw"
+
+    - name: Init chain
+      community.docker.docker_container_exec:
+        container: "{{ project_name}}-cli"
+        command: |
+          {{cosmos_node_binary}} init {{ moniker }} 
+          --chain-id {{ chain_id }} 
+          -o
+      register: result
+      when: init
+
+    - name: Install config.toml
+      ansible.builtin.template:
+        src: ../templates/config.toml.tpl
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/config.toml"
+      when: config
+
+    - name: Install client.toml
+      ansible.builtin.template:
+        src: ../templates/client.toml.tpl
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/client.toml"
+      when: config
+
+    - name: Install app.toml
+      ansible.builtin.template:
+        src: ../templates/app.toml.tpl
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/app.toml"
+      when: config
+
+    - name: Download genesis
+      ansible.builtin.get_url:
+        url: "{{ genesis_url }}"
+        dest: "{{ NODES_DATA_DIR }}/{{ project_name}}/config/genesis.json"
+      when: config
+
+    - name: Run node
+      docker_container:
+        name: "{{ project_name}}-node"
+        image: "{{ project_name}}:{{binary_version}}"
+        command: |
+          {{ cosmos_node_binary }}
+          start
+        networks:
+          - name: "{{ project_name}}"
+        published_ports:
+          - "0.0.0.0:{{ external_port }}:26656"
+        restart_policy: unless-stopped
+        pull: false
+        state: started
+        volumes:
+          - "{{ NODES_DATA_DIR }}/{{ project_name}}:{{ cosmos_data_dir }}:rw"
+      when: run_node
