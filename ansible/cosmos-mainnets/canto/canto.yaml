@@ -29,6 +29,7 @@
         statesync_trust_hash: "14e9a89157ad7f69202a82b8a77b331f7428974bb02fb90acd725610c889e175"
         statesync_trust_period: 168h
         seeds: "0830aa240e139fba099d1c2e831be84ecb29b73f@43.205.108.200:26656,beb82dcef7adcc3f8bc4173fa57bd310f6a6a55a@138.197.134.149:26656,9361d2cfb283da656b14eaf27e64d96cb86706f0@167.71.170.71:26656"
+        prometheus_enable: true
 
     - name: Set app.toml variables
       ansible.builtin.set_fact:
