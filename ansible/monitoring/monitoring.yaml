@@ -1,0 +1,73 @@
+---
+- name: Deploy monitoring
+  hosts: "{{ target }}"
+  become: yes
+
+  tasks:
+    - name: Set variables
+      ansible.builtin.set_fact:
+        project_name: monitoring
+
+    - name: "Speed up making directories"
+      shell: |
+        mkdir -p {{ NODES_DIR }}/{{ project_name}}/grafana
+        mkdir -p {{ NODES_DIR }}/{{ project_name}}/prometheus
+        mkdir -p {{ NODES_DATA_DIR }}/{{ project_name}}/grafana
+        mkdir -p {{ NODES_DATA_DIR }}/{{ project_name}}/prometheus
+        chmod -vR 777 {{ NODES_DATA_DIR }}/{{ project_name}}/grafana
+        chmod -vR 777 {{ NODES_DATA_DIR }}/{{ project_name}}/prometheus
+
+    - name: Create a network
+      community.docker.docker_network:
+        name: "{{ project_name }}"
+
+    - name: Copy configs grafana
+      ansible.builtin.copy:
+        src: grafana/
+        dest: "{{ NODES_DIR }}/{{ project_name}}/grafana/"
+
+    - name: Copy configs prom
+      ansible.builtin.template:
+        src: prometheus/prometheus.yml
+        dest: "{{ NODES_DIR }}/{{ project_name}}/prometheus/"
+
+    - name: Run prom node
+      docker_container:
+        name: "prometheus"
+        image: "prom/prometheus:latest"
+        networks:
+          - name: "{{ project_name}}"
+          - name: "konstellation"
+          - name: "canto"
+        restart_policy: unless-stopped
+        pull: true
+        state: started
+        volumes:
+          - "{{ NODES_DIR }}/{{ project_name}}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+          - "{{ NODES_DATA_DIR }}/{{ project_name}}/prometheus:/prometheus"
+
+    - name: Run grafana node
+      docker_container:
+        name: "grafana"
+        image: "grafana/grafana:latest"
+        networks:
+          - name: "{{ project_name}}"
+        restart_policy: unless-stopped
+        pull: true
+        state: started
+        volumes:
+          - "{{ NODES_DIR }}/{{ project_name}}/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml"
+          - "{{ NODES_DIR }}/{{ project_name}}/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/datasource.yml"
+          - "{{ NODES_DIR }}/{{ project_name}}/grafana/grafana.ini:/etc/grafana/grafana.ini:ro"
+          - "{{ NODES_DIR }}/{{ project_name}}/grafana/dashboards:/etc/dashboards"
+          - "{{ NODES_DATA_DIR }}/{{ project_name}}/grafana:/var/lib/grafana"
+
+    - name: Run exporter node
+      docker_container:
+        name: "node-exporter"
+        image: "prom/node-exporter:latest"
+        networks:
+          - name: "{{ project_name}}"
+        restart_policy: unless-stopped
+        pull: true
+        state: started

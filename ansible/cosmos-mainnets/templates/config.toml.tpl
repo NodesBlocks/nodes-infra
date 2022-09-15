@@ -455,7 +455,7 @@ indexer = "kv"
 # When true, Prometheus metrics are served under /metrics on
 # PrometheusListenAddr.
 # Check out the documentation for the list of available metrics.
-prometheus = false
+prometheus = {{ prometheus_enable | string | lower }}
 
 # Address to listen for Prometheus collector(s) connections
 prometheus_listen_addr = ":26660"
